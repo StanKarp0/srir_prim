@@ -90,19 +90,25 @@ void primPartitionMatrix(int *adMatrixFull, int **adMatrixPartial, int nodesNmb,
     //                void *recvbuf, int recvcount, MPI_Datatype recvtype, int root,
     //                MPI_Comm comm)
     // root - rank of sending process (integer) 
-    
     if (processId != lastId) {
       *adMatrixPartial = (int*) malloc(middleSize * sizeof(int));
       *nodesProcesNmb = middleNodes;
+      // TODO check if root should be 0 - this is different comm
       MPI_Scatter(adMatrixFull, middleSize, MPI_INT, 
                  *adMatrixPartial, middleSize, MPI_INT, 
                  0, lastComm);
     } else {
       *adMatrixPartial = (int*) malloc(lastSize * sizeof(int));
       *nodesProcesNmb = lastNodes;
-      MPI_Scatter(adMatrixFull + (lastId * middleSize), lastSize, MPI_INT, 
-                 *adMatrixPartial, lastSize, MPI_INT, 
-                 0, lastComm);
+    }
+
+    // handle lastProcess. root not in lastComm so scatter can not be used
+    // simple send and receive
+    if (processId == 0) {
+      MPI_Send(adMatrixFull + (lastId * middleSize), lastSize, MPI_INT, lastId, 0, MPI_COMM_WORLD);
+    }
+    else if (processId == lastId){
+      MPI_Recv(*adMatrixPartial, lastSize, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
 
   } else {
@@ -110,7 +116,6 @@ void primPartitionMatrix(int *adMatrixFull, int **adMatrixPartial, int nodesNmb,
     *adMatrixPartial = (int*) malloc(matrixSize * sizeof(int));
     memcpy(*adMatrixPartial, adMatrixFull, matrixSize * sizeof(int));
   }
-
 }
 
 // ====================== MAIN ========================
@@ -141,9 +146,10 @@ int main( int argc, char *argv[] )
 	}
 
   // Partitioning of adjacency matrix
+  MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
   primPartitionMatrix(adMatrixFull, &adMatrixPartial, nodesNmb, &nodesNmbProcess, processId, processNmb);
-
   printf("%d, %d, %d\n", processId, nodesNmb, nodesNmbProcess);
+  fprintfAdMatrix(stdout, adMatrixPartial, nodesNmbProcess, nodesNmb);
 
   // Free allocated resources
   if(processId == 0) {
