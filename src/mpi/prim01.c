@@ -11,9 +11,15 @@
 // ================== STRUCTURES ===================
 typedef struct DWeight {
   // Structure is a part of d table - table of minimal weights to node
-  int weight;
   int fromNode;
+  int weight;
 } DWeight;
+
+typedef struct DEdge {
+  int fromNode;
+  int toNode;
+  int weight;
+} DEdge;
 
 // ==================== UTILS ======================
 void fscanfEdgeList(FILE* file, int **adMatrix, int *nodesNmb) {
@@ -57,6 +63,14 @@ void fprintfDTable(FILE* file, DWeight* dTable, int rowNmb) {
 
   for (int row = 0; row < rowNmb; row++) {
     fprintf(file, "%d|%d,%d\n", row, dTable[row].fromNode, dTable[row].weight);
+  }
+}
+
+void fprintfDEdges(FILE* file, DEdge* edes, int rowNmb) {
+  // Function prints edges to output stream
+
+  for (int row = 0; row < rowNmb; row++) {
+    fprintf(file, "%d: %d -> %d - %d\n", row, edes[row].fromNode, edes[row].toNode, edes[row].weight);
   }
 }
 
@@ -144,21 +158,42 @@ void primPartitionDArray(int nodesNmbProcess, int nodesNmb, int firstNode, int* 
   }
 }
 
-void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb) {
+void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, DEdge** edges) {
+  // Prim's Algorithm 
 
-  int       *adMatrixPartial = 0; // chunk of adMatrix 
-  int       nodesNmbProcess = 0;  // nodes per process
-  int       firstNode = 0;        // algorithm start node
-  DWeight   *dTable = 0;          // weights array
+  int       *adMatrixPartial = 0;     // chunk of adMatrix 
+  int       nodesNmbProcess = 0;      // nodes per process
+  int       firstNode = 0;            // algorithm start node
+  int       *isNodeVisited = 0;       // stores 1 if node is already in tree
+  int       edgesNmb = nodesNmb - 1;  // edge count
+  DWeight   *dTable = 0;              // weights array
 
   // Partitioning of adjacency matrix and distance array
-  MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
   primPartitionMatrix(adMatrix, nodesNmb, processId, processNmb, &adMatrixPartial, &nodesNmbProcess);
   primPartitionDArray(nodesNmbProcess, nodesNmb, firstNode, adMatrixPartial, &dTable);
 
-  printf("%d, %d, %d\n", processId, nodesNmb, nodesNmbProcess);
-  fprintfDTable(stdout, dTable, nodesNmbProcess);
+  // Algorithm initialization
+  isNodeVisited = (int*) malloc(nodesNmb * sizeof(int));
 
+  // Main iteration
+  for (int index = 0; index < edgesNmb; index++) {
+
+    // 1. Each process P_i computes d_i = min{dTable}
+
+    // 2. Global minimum d is then obtained by using all-to-one reduction operation
+    //    and its stored in P_0 process. P_0 stores new vortex u
+
+    // 3. Process P_0 broadcasts u one-to-all. The process responsible for u 
+    //    marks u as belonging to tree.
+
+    // 4. Each process updates the values od d[v] for its local vertices 
+
+  }
+
+  fprintfDEdges(stdout, *edges, edgesNmb);
+
+
+  free(isNodeVisited);
   free(adMatrixPartial);
   free(dTable);
 }
@@ -171,6 +206,7 @@ int main( int argc, char *argv[] )
   int   processId, processNmb;
   int   nodesNmb = 0;
   int   *adMatrix = 0;
+  DEdge *edges;
 
   // MPI Initialization
   MPI_Init(&argc, &argv);
@@ -189,12 +225,15 @@ int main( int argc, char *argv[] )
     fprintfAdMatrix(stdout, adMatrix, nodesNmb, nodesNmb);    
 	}
 
-  primAlgorithm(adMatrix, nodesNmb, processId, processNmb);
+  MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  edges = (DEdge*) malloc((nodesNmb - 1) * sizeof(DEdge));
+  primAlgorithm(adMatrix, nodesNmb, processId, processNmb, &edges);
 
   // Free allocated resources
   if(processId == 0) {
     free(adMatrix);
   }
+  free(edges);
 
   MPI_Finalize();
   return 0;
