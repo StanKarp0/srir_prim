@@ -7,5 +7,8 @@ build: $(src)
 run:
 	mpiexec -n 3 $(exec) graphs/nodes10egdes20wages10.csv
 
+run2:
+	mpiexec -n 4 $(exec) graphs/nodes20egdes50wages10.csv
+
 clean:
 	rm $(exec)

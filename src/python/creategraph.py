@@ -43,13 +43,6 @@ def main():
                         help='output file name(default stdout')
     args = parser.parse_args()
 
-    if not isinstance(args.nodes, int):
-        raise TypeError('nodes argument must be a integer')
-    if not isinstance(args.edges, int):
-        raise TypeError('edges argument must be a integer')
-    if not isinstance(args.weight, int):
-        raise TypeError('weight argument must be a integer')
-
     edges = create_random_walk(args.nodes, args.edges, args.weight)
 
     csv = edges.to_csv(args.output, index=False)
