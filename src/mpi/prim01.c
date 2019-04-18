@@ -7,15 +7,18 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
+
 
 // ================== STRUCTURES ===================
 typedef struct DWeight {
   // Structure is a part of d table - table of minimal weights to node
-  int fromNode;
+  int fromNode; // global value
   int weight;
 } DWeight;
 
 typedef struct DEdge {
+  // 
   int fromNode;
   int toNode;
   int weight;
@@ -75,7 +78,7 @@ void fprintfDEdges(FILE* file, DEdge* edes, int rowNmb) {
 }
 
 // ==================== ALGORITM ===================
-void primPartitionMatrix(int *adMatrixFull, int nodesNmb, int processId, int processNmb, int **adMatrixPartial, int *nodesProcesNmb) {
+void primPartitionMatrix(int *adMatrixFull, int nodesNmb, int processId, int processNmb, int **adMatrixPartial, int *nodesProcesNmb, int *startNode) {
   // The partitioning of the adjecency matrix among processNmb processes. Page 445.
   // Last partition will be different size then others. nodes % processes can be different from 0.
 
@@ -95,6 +98,9 @@ void primPartitionMatrix(int *adMatrixFull, int nodesNmb, int processId, int pro
   // Even when lastSize == middleSize logic stay the same for simplicity
   MPI_Comm lastComm;
   
+  // define start node of each partition
+  *startNode = middleNodes * processId;
+
   if (processNmb > 1) {
     // more then one procces - partition
 
@@ -158,30 +164,68 @@ void primPartitionDArray(int nodesNmbProcess, int nodesNmb, int firstNode, int* 
   }
 }
 
+void primFindMinimumNode(int startNode, int nodesNmbProcess, DWeight* dTable, int* isAdded, int* minWeight, int* minNode) {
+  // Function finds local minimum for partitioned adMatrix
+  // Function returns -1 when connection not found 
+
+  int localWeight   = 0;
+  *minWeight        = INT_MAX;
+  *minNode          = -1;
+
+  for (int localNode = 0; localNode < nodesNmbProcess; localNode++) {
+
+    if (!isAdded[localNode + startNode]) {
+      localWeight = dTable[localNode].weight;
+
+      if (localWeight != 0 && ((*minNode) == -1 || (*minWeight) > localWeight)) {
+        *minWeight = localWeight;
+        *minNode = localNode;
+      }
+    }
+  }
+}
+
 void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, DEdge** edges) {
   // Prim's Algorithm 
 
   int       *adMatrixPartial = 0;     // chunk of adMatrix 
   int       nodesNmbProcess = 0;      // nodes per process
   int       firstNode = 0;            // algorithm start node
-  int       *isNodeVisited = 0;       // stores 1 if node is already in tree
+  int       *isNodeAdded = 0;         // stores 1 if node is already in tree
   int       edgesNmb = nodesNmb - 1;  // edge count
+
+  int       localMinNode = 0;         // minimum node id from partition
+  int       localMinWeight = -1;      // minimum node weight from partition
+  int       globalMinimumNode = 0;    // global minimum weight
+  int       globalMinimumWeight = -1; // global minimum weight
+
+  int       startNode = 0;            // start node number for partition
   DWeight   *dTable = 0;              // weights array
 
   // Partitioning of adjacency matrix and distance array
-  primPartitionMatrix(adMatrix, nodesNmb, processId, processNmb, &adMatrixPartial, &nodesNmbProcess);
+  primPartitionMatrix(adMatrix, nodesNmb, processId, processNmb, &adMatrixPartial, &nodesNmbProcess, &startNode);
   primPartitionDArray(nodesNmbProcess, nodesNmb, firstNode, adMatrixPartial, &dTable);
 
   // Algorithm initialization
-  isNodeVisited = (int*) malloc(nodesNmb * sizeof(int));
+  isNodeAdded = (int*) malloc(nodesNmb * sizeof(int));
 
   // Main iteration
-  for (int index = 0; index < edgesNmb; index++) {
+  for (int index = 0; index < 1/*edgesNmb*/; index++) {
 
     // 1. Each process P_i computes d_i = min{dTable}
+    primFindMinimumNode(startNode, nodesNmbProcess, dTable, isNodeAdded, &localMinWeight, &localMinNode);
+
+    // if (processId == 1) {
+    //   printf("----\n");
+    //   fprintfAdMatrix(stdout, adMatrixPartial, nodesNmbProcess, nodesNmb);
+    //   fprintfDTable(stdout, dTable, nodesNmbProcess);
+    //   printf("%d %d\n", localMinWeight, localMinNode);
+    // }
+    printf("%d %d\n", localMinWeight, localMinNode);
 
     // 2. Global minimum d is then obtained by using all-to-one reduction operation
     //    and its stored in P_0 process. P_0 stores new vortex u
+    // TODO find reduce function that remembers index - second parameter - some example from labs
 
     // 3. Process P_0 broadcasts u one-to-all. The process responsible for u 
     //    marks u as belonging to tree.
@@ -190,10 +234,7 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
 
   }
 
-  fprintfDEdges(stdout, *edges, edgesNmb);
-
-
-  free(isNodeVisited);
+  free(isNodeAdded);
   free(adMatrixPartial);
   free(dTable);
 }
