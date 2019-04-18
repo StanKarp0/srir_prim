@@ -144,19 +144,33 @@ void primPartitionDArray(int nodesNmbProcess, int nodesNmb, int firstNode, int* 
   }
 }
 
+void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb) {
+
+  int       *adMatrixPartial = 0; // chunk of adMatrix 
+  int       nodesNmbProcess = 0;  // nodes per process
+  int       firstNode = 0;        // algorithm start node
+  DWeight   *dTable = 0;          // weights array
+
+  // Partitioning of adjacency matrix and distance array
+  MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  primPartitionMatrix(adMatrix, nodesNmb, processId, processNmb, &adMatrixPartial, &nodesNmbProcess);
+  primPartitionDArray(nodesNmbProcess, nodesNmb, firstNode, adMatrixPartial, &dTable);
+
+  printf("%d, %d, %d\n", processId, nodesNmb, nodesNmbProcess);
+  fprintfDTable(stdout, dTable, nodesNmbProcess);
+
+  free(adMatrixPartial);
+  free(dTable);
+}
+
 // ===================== MAIN ======================
 int main( int argc, char *argv[] )
 {
-  FILE      *file;
-  char      *filename = argv[1];
-  int       processId, processNmb;
-
-  int       nodesNmb = 0;
-  int       nodesNmbProcess = 0;
-  int       *adMatrixFull = 0;
-  int       *adMatrixPartial = 0;
-  int       firstNode = 0; // algorithm start node
-  DWeight   *dTable = 0;
+  FILE  *file;
+  char  *filename = argv[1];
+  int   processId, processNmb;
+  int   nodesNmb = 0;
+  int   *adMatrix = 0;
 
   // MPI Initialization
   MPI_Init(&argc, &argv);
@@ -170,27 +184,17 @@ int main( int argc, char *argv[] )
       printf("Cannot found input file %s!\n", filename);
       MPI_Abort(MPI_COMM_WORLD, 1);
     }
-		fscanfEdgeList(file, &adMatrixFull, &nodesNmb);
+		fscanfEdgeList(file, &adMatrix, &nodesNmb);
     fclose(file);
-    fprintfAdMatrix(stdout, adMatrixFull, nodesNmb, nodesNmb);    
+    fprintfAdMatrix(stdout, adMatrix, nodesNmb, nodesNmb);    
 	}
 
-  // Partitioning of adjacency matrix
-  MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  primPartitionMatrix(adMatrixFull, nodesNmb, processId, processNmb, &adMatrixPartial, &nodesNmbProcess);
-  primPartitionDArray(nodesNmbProcess, nodesNmb, firstNode, adMatrixPartial, &dTable);
-
-  printf("%d, %d, %d\n", processId, nodesNmb, nodesNmbProcess);
-  fprintfDTable(stdout, dTable, nodesNmbProcess);
+  primAlgorithm(adMatrix, nodesNmb, processId, processNmb);
 
   // Free allocated resources
   if(processId == 0) {
-    free(adMatrixFull);
+    free(adMatrix);
   }
-  if (adMatrixPartial != 0) {
-    free(adMatrixPartial);
-  }
-
 
   MPI_Finalize();
   return 0;
