@@ -8,6 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+// ================== STRUCTURES ===================
+typedef struct DWeight {
+  // Structure is a part of d table - table of minimal weights to node
+  int weight;
+  int fromNode;
+} DWeight;
 
 // ==================== UTILS ======================
 void fscanfEdgeList(FILE* file, int **adMatrix, int *nodesNmb) {
@@ -46,8 +52,16 @@ void fprintfAdMatrix(FILE* file, int* adMatrix, int rowNmb, int colNmb) {
   }
 }
 
-// ==================== ALGORITM ======================
-void primPartitionMatrix(int *adMatrixFull, int **adMatrixPartial, int nodesNmb, int *nodesProcesNmb, int processId, int processNmb) {
+void fprintfDTable(FILE* file, DWeight* dTable, int rowNmb) {
+  // Function prints d weights table to output stream
+
+  for (int row = 0; row < rowNmb; row++) {
+    fprintf(file, "%d|%d,%d\n", row, dTable[row].fromNode, dTable[row].weight);
+  }
+}
+
+// ==================== ALGORITM ===================
+void primPartitionMatrix(int *adMatrixFull, int nodesNmb, int processId, int processNmb, int **adMatrixPartial, int *nodesProcesNmb) {
   // The partitioning of the adjecency matrix among processNmb processes. Page 445.
   // Last partition will be different size then others. nodes % processes can be different from 0.
 
@@ -118,15 +132,31 @@ void primPartitionMatrix(int *adMatrixFull, int **adMatrixPartial, int nodesNmb,
   }
 }
 
-// ====================== MAIN ========================
+void primPartitionDArray(int nodesNmbProcess, int nodesNmb, int firstNode, int* adMatrixPartial, DWeight** dTable) {
+  // The partitioning of distance array among processes  
+  // Function creates DTable for each process 
+
+  *dTable = (DWeight*) malloc(nodesNmbProcess * sizeof(DWeight));
+
+  for (int row = 0; row < nodesNmbProcess; row++) {
+    (*dTable)[row].weight = adMatrixPartial[row * nodesNmb + firstNode];
+    (*dTable)[row].fromNode = firstNode;
+  }
+}
+
+// ===================== MAIN ======================
 int main( int argc, char *argv[] )
 {
-  FILE  *file;
-  char  *filename = argv[1];
-  int   *adMatrixFull = 0;
-  int   *adMatrixPartial = 0;
-  int   nodesNmb = 0, nodesNmbProcess = 0;
-  int   processId, processNmb;
+  FILE      *file;
+  char      *filename = argv[1];
+  int       processId, processNmb;
+
+  int       nodesNmb = 0;
+  int       nodesNmbProcess = 0;
+  int       *adMatrixFull = 0;
+  int       *adMatrixPartial = 0;
+  int       firstNode = 0; // algorithm start node
+  DWeight   *dTable = 0;
 
   // MPI Initialization
   MPI_Init(&argc, &argv);
@@ -147,9 +177,11 @@ int main( int argc, char *argv[] )
 
   // Partitioning of adjacency matrix
   MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
-  primPartitionMatrix(adMatrixFull, &adMatrixPartial, nodesNmb, &nodesNmbProcess, processId, processNmb);
+  primPartitionMatrix(adMatrixFull, nodesNmb, processId, processNmb, &adMatrixPartial, &nodesNmbProcess);
+  primPartitionDArray(nodesNmbProcess, nodesNmb, firstNode, adMatrixPartial, &dTable);
+
   printf("%d, %d, %d\n", processId, nodesNmb, nodesNmbProcess);
-  fprintfAdMatrix(stdout, adMatrixPartial, nodesNmbProcess, nodesNmb);
+  fprintfDTable(stdout, dTable, nodesNmbProcess);
 
   // Free allocated resources
   if(processId == 0) {
