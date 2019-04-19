@@ -168,24 +168,25 @@ void primFindMinimum(int startNode, int nodesNmbProcess, DWeight* dTable, int* i
   // Function finds local minimum for partitioned adMatrix
   // Function returns -1 when connection not found 
 
+  int globalNode  = 0;
   int localWeight = 0;
   local->weight   = INT_MAX;
   local->node     = -1;
 
   for (int localNode = 0; localNode < nodesNmbProcess; localNode++) {
+    globalNode = localNode + startNode;
 
-    if (!isAdded[localNode + startNode]) {
+    if (!isAdded[globalNode]) {
       localWeight = dTable[localNode].weight;
-
       if (localWeight != 0 && (local->node == -1 || local->weight > localWeight)) {
         local->weight = localWeight;
-        local->node = localNode;
+        local->node   = globalNode;
       }
     }
   }
 }
 
-void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, DEdge** edges) {
+void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, DEdge* edges) {
   // Prim's Algorithm 
 
   int     *adMatrixPartial = 0;     // chunk of adMatrix 
@@ -195,6 +196,7 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
   int     edgesNmb = nodesNmb - 1;  // edge count
 
   int     startNode = 0;            // start node number for partition
+  int     row = 0;
   DWeight *dTable = 0;              // weights array
   DWeight localMin;
   DWeight globalMin;
@@ -219,7 +221,14 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
     // 3. Process P_0 broadcasts u one-to-all. The process responsible for u 
     //    marks u as belonging to tree.
     MPI_Bcast(&globalMin, 1, MPI_2INTEGER, 0, MPI_COMM_WORLD);
-    // TODO change d array
+    if (startNode <= globalMin.node && globalMin.node < startNode + nodesNmbProcess) {
+      edges[index].weight = globalMin.weight;
+      edges[index].toNode = globalMin.node;
+      for (; row < nodesNmbProcess && dTable[row].weight != globalMin.weight; row++);
+      edges[index].fromNode = dTable[row].node;
+      fprintfDEdges(stdout, edges, 3);
+    }
+    // TODO sync edges to other processes (or to root). Maybe bcast of fromNode value
     
     // 4. Each process updates the values od d[v] for its local vertices 
 
@@ -259,7 +268,7 @@ int main( int argc, char *argv[] )
 
   MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
   edges = (DEdge*) malloc((nodesNmb - 1) * sizeof(DEdge));
-  primAlgorithm(adMatrix, nodesNmb, processId, processNmb, &edges);
+  primAlgorithm(adMatrix, nodesNmb, processId, processNmb, edges);
 
   // Free allocated resources
   if(processId == 0) {
