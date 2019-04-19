@@ -186,6 +186,28 @@ void primFindMinimum(int startNode, int nodesNmbProcess, DWeight* dTable, int* i
   }
 }
 
+void primBroadcastSolution(int startNode, int nodesNmbProcess, DWeight *dTable, DWeight globalMin, DEdge* edge) {
+  // Function brodcasts solution to every process. 
+
+  int row = 0;
+  int fromNode = -1, fromNodeGlobal;
+  MPI_Bcast(&globalMin, 1, MPI_2INTEGER, 0, MPI_COMM_WORLD);
+
+  // finding responisble partition
+  if (startNode <= globalMin.node && globalMin.node < startNode + nodesNmbProcess) {
+    for (; row < nodesNmbProcess && dTable[row].weight != globalMin.weight; row++);
+    fromNode = dTable[row].node;
+  } 
+
+  // sync edges to other processes 
+  MPI_Reduce(&fromNode, &fromNodeGlobal, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&fromNodeGlobal, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+  edge->weight = globalMin.weight;
+  edge->toNode = globalMin.node;
+  edge->fromNode = fromNodeGlobal;
+}
+
 void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, DEdge* edges) {
   // Prim's Algorithm 
 
@@ -194,9 +216,8 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
   int     nodesNmbProcess = 0;      // nodes per process
   int     firstNode = 0;            // algorithm start node
   int     edgesNmb = nodesNmb - 1;  // edge count
-
   int     startNode = 0;            // start node number for partition
-  int     row = 0;
+
   DWeight *dTable = 0;              // weights array
   DWeight localMin;
   DWeight globalMin;
@@ -211,6 +232,8 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
   // Main iteration
   for (int index = 0; index < 1/*edgesNmb*/; index++) {
 
+    DEdge *edge = &edges[index];
+
     // 1. Each process P_i computes d_i = min{dTable}
     primFindMinimum(startNode, nodesNmbProcess, dTable, isNodeAdded, &localMin);
     
@@ -220,19 +243,13 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
     
     // 3. Process P_0 broadcasts u one-to-all. The process responsible for u 
     //    marks u as belonging to tree.
-    MPI_Bcast(&globalMin, 1, MPI_2INTEGER, 0, MPI_COMM_WORLD);
-    if (startNode <= globalMin.node && globalMin.node < startNode + nodesNmbProcess) {
-      edges[index].weight = globalMin.weight;
-      edges[index].toNode = globalMin.node;
-      for (; row < nodesNmbProcess && dTable[row].weight != globalMin.weight; row++);
-      edges[index].fromNode = dTable[row].node;
-      fprintfDEdges(stdout, edges, 3);
-    }
-    // TODO sync edges to other processes (or to root). Maybe bcast of fromNode value
+    primBroadcastSolution(startNode, nodesNmbProcess, dTable, globalMin, edge);
     
     // 4. Each process updates the values od d[v] for its local vertices 
 
   }
+  fprintfDEdges(stdout, edges, 3);
+
 
   free(isNodeAdded);
   free(adMatrixPartial);
