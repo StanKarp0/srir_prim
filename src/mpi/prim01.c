@@ -208,6 +208,20 @@ void primBroadcastSolution(int startNode, int nodesNmbProcess, DWeight *dTable, 
   edge->fromNode = fromNodeGlobal;
 }
 
+void primUpdateDArray(int *adMatrixPartial, int nodesNmb, int nodesNmbProcess, int newNode, DWeight *dTable) {
+  // Function updates D array after adding new node to tree
+
+  int newWeight = 0;
+
+  for (int row = 0; row < nodesNmbProcess; row++) {
+    newWeight = adMatrixPartial[row * nodesNmb + newNode];
+    if (dTable[row].weight > newWeight) {
+      dTable[row].node = newNode;
+      dTable[row].weight = newWeight;
+    }
+  }
+}
+
 void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, DEdge* edges) {
   // Prim's Algorithm 
 
@@ -228,9 +242,10 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
 
   // Algorithm initialization
   isNodeAdded = (int*) malloc(nodesNmb * sizeof(int));
+  isNodeAdded[startNode] = 1;
 
   // Main iteration
-  for (int index = 0; index < 1/*edgesNmb*/; index++) {
+  for (int index = 0; index < edgesNmb; index++) {
 
     DEdge *edge = &edges[index];
 
@@ -244,11 +259,15 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
     // 3. Process P_0 broadcasts u one-to-all. The process responsible for u 
     //    marks u as belonging to tree.
     primBroadcastSolution(startNode, nodesNmbProcess, dTable, globalMin, edge);
-    
-    // 4. Each process updates the values od d[v] for its local vertices 
 
+    // 4. Each process updates the values od d[v] for its local vertices 
+    isNodeAdded[edge->toNode] = 1;
+    primUpdateDArray(adMatrixPartial, nodesNmb, nodesNmbProcess, edge->toNode, dTable);
+    // TODO fix memory corruption 
   }
-  fprintfDEdges(stdout, edges, 3);
+  // fprintfDTable(stdout, dTable, nodesNmbProcess);
+  // fprintfDEdges(stdout, edges, nodesNmb - 1);
+  printf("--");
 
 
   free(isNodeAdded);
