@@ -10,5 +10,8 @@ run:
 run2:
 	mpiexec -n 4 $(exec) graphs/nodes20egdes50wages10.csv
 
+run3:
+	mpiexec -n 2 $(exec) graphs/nodes6edges12.csv
+
 clean:
 	rm $(exec)

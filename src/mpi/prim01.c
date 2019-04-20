@@ -61,19 +61,20 @@ void fprintfAdMatrix(FILE* file, int* adMatrix, int rowNmb, int colNmb) {
   }
 }
 
-void fprintfDTable(FILE* file, DWeight* dTable, int rowNmb) {
+void fprintfDTable(FILE* file, DWeight* dTable, int rowNmb, int processId) {
   // Function prints d weights table to output stream
 
   for (int row = 0; row < rowNmb; row++) {
-    fprintf(file, "%d|%d,%d\n", row, dTable[row].node, dTable[row].weight);
+    fprintf(file, "%d: %d|%d,%d\n", processId, row, dTable[row].node, dTable[row].weight);
   }
 }
 
-void fprintfDEdges(FILE* file, DEdge* edes, int rowNmb) {
+void fprintfDEdges(FILE* file, DEdge* edes, int nodeNmb, int rowNmb) {
   // Function prints edges to output stream
 
+  fprintf(file, "nodes-%d,edges-%d,weights\n", nodeNmb, rowNmb);
   for (int row = 0; row < rowNmb; row++) {
-    fprintf(file, "%d: %d -> %d - %d\n", row, edes[row].fromNode, edes[row].toNode, edes[row].weight);
+    fprintf(file, "%d,%d,%d\n", edes[row].fromNode, edes[row].toNode, edes[row].weight);
   }
 }
 
@@ -148,6 +149,7 @@ void primPartitionMatrix(int *adMatrixFull, int nodesNmb, int processId, int pro
   } else {
     // only one process - copy everything
     *adMatrixPartial = (int*) malloc(matrixSize * sizeof(int));
+    *nodesProcesNmb = nodesNmb;
     memcpy(*adMatrixPartial, adMatrixFull, matrixSize * sizeof(int));
   }
 }
@@ -156,10 +158,12 @@ void primPartitionDArray(int nodesNmbProcess, int nodesNmb, int firstNode, int* 
   // The partitioning of distance array among processes  
   // Function creates DTable for each process 
 
+  int weight;
   *dTable = (DWeight*) malloc(nodesNmbProcess * sizeof(DWeight));
 
   for (int row = 0; row < nodesNmbProcess; row++) {
-    (*dTable)[row].weight = adMatrixPartial[row * nodesNmb + firstNode];
+    weight = adMatrixPartial[row * nodesNmb + firstNode];
+    (*dTable)[row].weight = weight > 0 ? weight : INT_MAX;
     (*dTable)[row].node = firstNode;
   }
 }
@@ -189,15 +193,13 @@ void primFindMinimum(int startNode, int nodesNmbProcess, DWeight* dTable, int* i
 void primBroadcastSolution(int startNode, int nodesNmbProcess, DWeight *dTable, DWeight globalMin, DEdge* edge) {
   // Function brodcasts solution to every process. 
 
-  int row = 0;
   int fromNode = -1, fromNodeGlobal;
   MPI_Bcast(&globalMin, 1, MPI_2INTEGER, 0, MPI_COMM_WORLD);
 
   // finding responisble partition
   if (startNode <= globalMin.node && globalMin.node < startNode + nodesNmbProcess) {
-    for (; row < nodesNmbProcess && dTable[row].weight != globalMin.weight; row++);
-    fromNode = dTable[row].node;
-  } 
+    fromNode = dTable[globalMin.node - startNode].node;
+  }
 
   // sync edges to other processes 
   MPI_Reduce(&fromNode, &fromNodeGlobal, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
@@ -215,7 +217,7 @@ void primUpdateDArray(int *adMatrixPartial, int nodesNmb, int nodesNmbProcess, i
 
   for (int row = 0; row < nodesNmbProcess; row++) {
     newWeight = adMatrixPartial[row * nodesNmb + newNode];
-    if (dTable[row].weight > newWeight) {
+    if (dTable[row].weight > newWeight && newWeight > 0) {
       dTable[row].node = newNode;
       dTable[row].weight = newWeight;
     }
@@ -242,7 +244,8 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
 
   // Algorithm initialization
   isNodeAdded = (int*) malloc(nodesNmb * sizeof(int));
-  isNodeAdded[startNode] = 1;
+  for (int i = 0; i < nodesNmb; isNodeAdded[i] = 0,i++);
+  isNodeAdded[firstNode] = 1;
 
   // Main iteration
   for (int index = 0; index < edgesNmb; index++) {
@@ -263,12 +266,7 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
     // 4. Each process updates the values od d[v] for its local vertices 
     isNodeAdded[edge->toNode] = 1;
     primUpdateDArray(adMatrixPartial, nodesNmb, nodesNmbProcess, edge->toNode, dTable);
-    // TODO fix memory corruption 
   }
-  // fprintfDTable(stdout, dTable, nodesNmbProcess);
-  // fprintfDEdges(stdout, edges, nodesNmb - 1);
-  printf("--");
-
 
   free(isNodeAdded);
   free(adMatrixPartial);
@@ -299,7 +297,6 @@ int main( int argc, char *argv[] )
     }
 		fscanfEdgeList(file, &adMatrix, &nodesNmb);
     fclose(file);
-    fprintfAdMatrix(stdout, adMatrix, nodesNmb, nodesNmb);    
 	}
 
   MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -308,6 +305,7 @@ int main( int argc, char *argv[] )
 
   // Free allocated resources
   if(processId == 0) {
+    fprintfDEdges(stdout, edges, nodesNmb, nodesNmb - 1);
     free(adMatrix);
   }
   free(edges);

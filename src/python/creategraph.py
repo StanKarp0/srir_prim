@@ -22,8 +22,10 @@ def create_random_walk(nodes: int, edges: int, max_weight: int) -> pd.DataFrame:
     random_edges = np.random.permutation(all_left.T)[:edges-nodes]
 
     # matrix transformation to neighbours list
-    neighbours = pd.DataFrame(np.vstack((necessary, random_edges)), columns=[f'nodes-{nodes}', f'edges-{edges}'])
-    neighbours['weights'] = np.random.randint(1, max_weight, (edges,))
+    neighbours = pd.DataFrame(np.vstack((necessary, random_edges)))
+    edges_nmb = neighbours.shape[0]
+    neighbours = neighbours.rename(columns={0: f'nodes-{nodes}', 1: f'edges-{edges_nmb}'})
+    neighbours['weights'] = np.random.randint(1, max_weight, (edges_nmb,))
     return neighbours
 
 
