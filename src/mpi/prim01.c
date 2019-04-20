@@ -137,8 +137,8 @@ void primPartitionMatrix(int *adMatrixFull, int nodesNmb, int processId, int pro
       *nodesProcesNmb = lastNodes;
     }
 
-    // handle lastProcess. root not in lastComm so scatter can not be used
-    // simple send and receive
+    // Handle lastProcess. root not in lastComm so scatter can not be used
+    // Simple send and receive
     if (processId == 0) {
       MPI_Send(adMatrixFull + (lastId * middleSize), lastSize, MPI_INT, lastId, 0, MPI_COMM_WORLD);
     }
@@ -147,7 +147,7 @@ void primPartitionMatrix(int *adMatrixFull, int nodesNmb, int processId, int pro
     }
 
   } else {
-    // only one process - copy everything
+    // Only one process - copy everything
     *adMatrixPartial = (int*) malloc(matrixSize * sizeof(int));
     *nodesProcesNmb = nodesNmb;
     memcpy(*adMatrixPartial, adMatrixFull, matrixSize * sizeof(int));
@@ -164,13 +164,13 @@ void primPartitionDArray(int nodesNmbProcess, int nodesNmb, int firstNode, int* 
   for (int row = 0; row < nodesNmbProcess; row++) {
     weight = adMatrixPartial[row * nodesNmb + firstNode];
     (*dTable)[row].weight = weight > 0 ? weight : INT_MAX;
-    (*dTable)[row].node = firstNode;
+    (*dTable)[row].node   = firstNode;
   }
 }
 
 void primFindMinimum(int startNode, int nodesNmbProcess, DWeight* dTable, int* isAdded, DWeight *local) {
   // Function finds local minimum for partitioned adMatrix
-  // Function returns -1 when connection not found 
+  // Function returns INT_MAX weight value when connection not found 
 
   int globalNode  = 0;
   int localWeight = 0;
@@ -181,7 +181,9 @@ void primFindMinimum(int startNode, int nodesNmbProcess, DWeight* dTable, int* i
     globalNode = localNode + startNode;
 
     if (!isAdded[globalNode]) {
+
       localWeight = dTable[localNode].weight;
+      
       if (localWeight != 0 && (local->node == -1 || local->weight > localWeight)) {
         local->weight = localWeight;
         local->node   = globalNode;
@@ -196,30 +198,37 @@ void primBroadcastSolution(int startNode, int nodesNmbProcess, DWeight *dTable, 
   int fromNode = -1, fromNodeGlobal;
   MPI_Bcast(&globalMin, 1, MPI_2INTEGER, 0, MPI_COMM_WORLD);
 
-  // finding responisble partition
+  // Finding responisble partition
   if (startNode <= globalMin.node && globalMin.node < startNode + nodesNmbProcess) {
+    // Only one process have fromNode value greater then -1
     fromNode = dTable[globalMin.node - startNode].node;
   }
 
-  // sync edges to other processes 
+  // FromNode value cannot be brodcasted along toNode,value tuple so separate
+  // Reduce and broadcast is needed
   MPI_Reduce(&fromNode, &fromNodeGlobal, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
   MPI_Bcast(&fromNodeGlobal, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  edge->weight = globalMin.weight;
-  edge->toNode = globalMin.node;
-  edge->fromNode = fromNodeGlobal;
+  // Saving solution in every process
+  edge->weight    = globalMin.weight;
+  edge->toNode    = globalMin.node;
+  edge->fromNode  = fromNodeGlobal;
 }
 
-void primUpdateDArray(int *adMatrixPartial, int nodesNmb, int nodesNmbProcess, int newNode, DWeight *dTable) {
+void primUpdateDArray(int *adMatrixPartial, int nodesNmb, int nodesNmbProcess, DEdge *edge, int *isAdded, DWeight *dTable) {
   // Function updates D array after adding new node to tree
 
   int newWeight = 0;
+  isAdded[edge->toNode] = 1;
 
   for (int row = 0; row < nodesNmbProcess; row++) {
-    newWeight = adMatrixPartial[row * nodesNmb + newNode];
+    // Weight from new node
+    newWeight = adMatrixPartial[row * nodesNmb + edge->toNode];
+
+    // Check if new path to node is better then previous one 
     if (dTable[row].weight > newWeight && newWeight > 0) {
-      dTable[row].node = newNode;
-      dTable[row].weight = newWeight;
+      dTable[row].node    = edge->toNode;
+      dTable[row].weight  = newWeight;
     }
   }
 }
@@ -264,8 +273,7 @@ void primAlgorithm(int *adMatrix, int nodesNmb, int processId, int processNmb, D
     primBroadcastSolution(startNode, nodesNmbProcess, dTable, globalMin, edge);
 
     // 4. Each process updates the values od d[v] for its local vertices 
-    isNodeAdded[edge->toNode] = 1;
-    primUpdateDArray(adMatrixPartial, nodesNmb, nodesNmbProcess, edge->toNode, dTable);
+    primUpdateDArray(adMatrixPartial, nodesNmb, nodesNmbProcess, edge, isNodeAdded, dTable);
   }
 
   free(isNodeAdded);
@@ -299,8 +307,11 @@ int main( int argc, char *argv[] )
     fclose(file);
 	}
 
+  // Initialization
   MPI_Bcast(&nodesNmb, 1, MPI_INT, 0, MPI_COMM_WORLD);
   edges = (DEdge*) malloc((nodesNmb - 1) * sizeof(DEdge));
+
+  // Prim's Algorithm
   primAlgorithm(adMatrix, nodesNmb, processId, processNmb, edges);
 
   // Free allocated resources
